@@ -8,11 +8,26 @@ import (
 	"time"
 
 	"github.com/Poudel0/screentyme/internal/sampler"
+	"github.com/Poudel0/screentyme/internal/store"
 )
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	log.SetFlags(0)
+
+	dbPath, err := store.DefaultPath()
+	if err != nil {
+		log.Fatalf("resolve db path: %v", err)
+	}
+	log.Printf("db: %s", dbPath)
+
+	st, err := store.Open(dbPath)
+	if err != nil {
+		log.Fatalf("open store: %v", err)
+	}
+	defer st.Close()
 
 	out := make(chan sampler.Sample, 16)
 	s := sampler.New(5*time.Second, out)
@@ -24,7 +39,12 @@ func main() {
 		close(out)
 	}()
 
-	for sample := range out {
-		log.Printf("%s | %-20s | %s | %s | %d | %d", sample.Timestamp.Format("15:04:05"), sample.AppClass, sample.Title, sample.ContentType, sample.Monitor, sample.PID)
+	for smp := range out {
+		if err := st.Insert(ctx, smp); err != nil {
+			log.Printf("store: insert failed: %v", err)
+			continue
+		}
+		log.Printf(" %-20s | %s", smp.AppClass, smp.Title)
 	}
+	log.Println("clean shutdown")
 }

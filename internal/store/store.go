@@ -67,10 +67,11 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
+func (s *Store) DB() *sql.DB {
+	return s.db
+}
+
 // migrate applies the schema. Idempotent — safe to run on every startup.
-// When you add a v2 schema change, do it here, with a check for the new
-// column/table before adding it. We're not pulling in a migration library
-// for two tables.
 func (s *Store) migrate() error {
 	const schema = `
 	CREATE TABLE IF NOT EXISTS samples (
@@ -86,16 +87,36 @@ func (s *Store) migrate() error {
 		fullscreen      INTEGER NOT NULL DEFAULT 0
 	);
 
-	CREATE INDEX IF NOT EXISTS idx_samples_ts ON samples(ts);
+	CREATE INDEX IF NOT EXISTS idx_samples_ts     ON samples(ts);
 	CREATE INDEX IF NOT EXISTS idx_samples_app_ts ON samples(app_class, ts);
 
 	CREATE TABLE IF NOT EXISTS categories (
 		app_class TEXT PRIMARY KEY,
 		category  TEXT NOT NULL
 	);
+
+	CREATE TABLE IF NOT EXISTS tracked_keywords (
+		id         INTEGER PRIMARY KEY,
+		app_class  TEXT    NOT NULL,
+		keyword    TEXT    NOT NULL,
+		label      TEXT,
+		created_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+		UNIQUE(app_class, keyword)
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_keywords_app ON tracked_keywords(app_class);
+
+	CREATE TABLE IF NOT EXISTS daily_rollups (
+		day       TEXT    NOT NULL,
+		app_class TEXT    NOT NULL,
+		seconds   INTEGER NOT NULL,
+		PRIMARY KEY (day, app_class)
+	);
 	`
-	_, err := s.db.Exec(schema)
-	return err
+	if _, err := s.db.Exec(schema); err != nil {
+		return err
+	}
+	return nil
 }
 
 // Insert writes one sample. Called once per tick.
@@ -122,9 +143,57 @@ func (s *Store) Insert(ctx context.Context, smp sampler.Sample) error {
 	return nil
 }
 
+// Keyword represents a tracking rule: match titles containing keyword
+// within a given app_class.
+type Keyword struct {
+	ID        int       `json:"id"`
+	AppClass  string    `json:"app_class"`
+	Keyword   string    `json:"keyword"`
+	Label     string    `json:"label"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+func (s *Store) AddKeyword(ctx context.Context, appClass, keyword, label string) error {
+	const q = `
+	INSERT INTO tracked_keywords (app_class, keyword, label)
+	VALUES (?, ?, ?)
+	ON CONFLICT(app_class, keyword) DO UPDATE SET label = excluded.label
+	`
+	_, err := s.db.ExecContext(ctx, q, appClass, keyword, nullableStr(label))
+	return err
+}
+
+func (s *Store) DeleteKeyword(ctx context.Context, id int) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM tracked_keywords WHERE id = ?`, id)
+	return err
+}
+
+func (s *Store) ListKeywords(ctx context.Context) ([]Keyword, error) {
+	const q = `
+	SELECT id, app_class, keyword, COALESCE(label, keyword), created_at
+	FROM tracked_keywords
+	ORDER BY app_class, keyword
+	`
+	rows, err := s.db.QueryContext(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var kws []Keyword
+	for rows.Next() {
+		var kw Keyword
+		var ts int64
+		if err := rows.Scan(&kw.ID, &kw.AppClass, &kw.Keyword, &kw.Label, &ts); err != nil {
+			return nil, err
+		}
+		kw.CreatedAt = time.Unix(ts, 0)
+		kws = append(kws, kw)
+	}
+	return kws, rows.Err()
+}
+
 // nullableStr returns sql.NullString so that empty strings become SQL NULL.
-// Helps your aggregation queries — `WHERE title IS NULL` reads better than
-// `WHERE title = ”`, and it shrinks the file a bit.
 func nullableStr(s string) sql.NullString {
 	if s == "" {
 		return sql.NullString{}

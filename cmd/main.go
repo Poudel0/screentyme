@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"github.com/Poudel0/screentyme/internal/sampler"
+	"github.com/Poudel0/screentyme/internal/server"
 	"github.com/Poudel0/screentyme/internal/store"
+	"github.com/Poudel0/screentyme/internal/webui"
 )
 
 func main() {
@@ -28,6 +30,13 @@ func main() {
 		log.Fatalf("open store: %v", err)
 	}
 	defer st.Close()
+
+	srv := server.New(st, "127.0.0.1:7777", webui.FS())
+	go func() {
+		if err := srv.Run(ctx); err != nil {
+			log.Printf("server: %v", err)
+		}
+	}()
 
 	out := make(chan sampler.Sample, 16)
 	s := sampler.New(5*time.Second, out)

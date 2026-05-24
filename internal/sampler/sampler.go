@@ -99,7 +99,7 @@ func queryActiveWindow() (*Sample, error) {
 	return &Sample{
 		Timestamp:      time.Now(),
 		AppClass:       w.Class,
-		Title:          w.Title,
+		Title:          CleanTitle(w.Title),
 		PID:            w.PID,
 		Workspace:      w.Workspace.ID,
 		Monitor:        w.Monitor,

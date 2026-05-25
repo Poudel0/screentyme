@@ -10,32 +10,39 @@ Screentyme is a lightweight, self-hosted screentime tracking daemon and analytic
 - **Built-in Web UI:** A bundled, embedded web application to visualize your usage continuously running at `http://127.0.0.1:7777`.
 - **RESTful API:** Easily scriptable and hookable API for building extensions, integrations or accessing your raw data.
 
-## Getting Started
+## Installation
 
-### Prerequisites
-- Go 1.20+ (for building)
-- Ensure you are running a supported compositor/window manager (supports tools providing active window context).
+### One-liner (recommended)
 
-### Installation
+Paste this in your terminal. It installs the binary to `~/.local/bin` and sets up a systemd user service that starts automatically on login:
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/Poudel0/screentyme.git
-   cd screentyme
-   ```
+```bash
+curl -fsSL https://raw.githubusercontent.com/Poudel0/screentyme/main/install.sh | bash
+```
 
-2. Build the daemon:
-   ```bash
-   go build -o screentyme ./cmd
-   ```
+Requires: `curl`, `tar`, `systemd`. Supports x86_64 and aarch64.
 
-3. Run the daemon:
-   ```bash
-   ./screentyme
-   ```
-   *Note: For a better experience, it is recommended to run Screentyme as a user `systemd` service.*
+Once installed, the web UI is available at **http://127.0.0.1:7777**.
 
-Once running, the web interface and API will be accessible at: **`http://127.0.0.1:7777`**
+**Useful commands after install:**
+
+```bash
+systemctl --user status screentyme      # check if it's running
+journalctl --user -u screentyme -f      # tail logs
+systemctl --user restart screentyme     # restart after an update
+systemctl --user disable --now screentyme  # stop and disable
+```
+
+### Build from source
+
+Requires Go 1.20+.
+
+```bash
+git clone https://github.com/Poudel0/screentyme.git
+cd screentyme
+go build -o screentyme ./cmd
+./screentyme
+```
 
 ---
 
